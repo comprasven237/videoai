@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="dashboard-page">
+    <!-- HEADER -->
+    <header class="dashboard-header">
+        <div class="header-left">
+            <h1>🎬 VIDEOAI</h1>
+            <span class="llm-status {{ 'connected' if llm_connected else 'disconnected' }}">
+                LLM: {{ '🟢 Conectado' if llm_connected else '🔴 Sin conexión' }}
+            </span>
+        </div>
+        <div class="header-right">
+            <a href="/setup" class="btn-icon" title="Configuración">⚙️</a>
+        </div>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <main class="dashboard-main">
+        <!-- UPLOAD SECTION -->
+        <section class="upload-section">
+            <h2>📤 Subir Vídeos</h2>
+            
+            <!-- Drag & Drop Zone -->
+            <div id="dropZone" class="drop-zone">
+                <div class="drop-zone-content">
+                    <span class="drop-icon">📁</span>
+                    <p><strong>Arrastra y suelta vídeos aquí</strong></p>
+                    <p>o haz clic para seleccionar archivos</p>
+                    <p class="drop-hint">Soporta: MP4, MOV, AVI, MKV, WEBM • Múltiples archivos</p>
+                </div>
+                <input type="file" id="fileInput" accept="video/*" multiple style="display: none;">
+            </div>
+            
+            <!-- URL Input -->
+            <div class="url-input-section">
+                <h3>🔗 O pega un link de vídeo</h3>
+                <div class="url-input-group">
+                    <input 
+                        type="url" 
+                        id="videoUrl" 
+                        placeholder="https://www.youtube.com/watch?v=... o cualquier link de vídeo"
+                        class="url-input"
+                    >
+                    <button id="btnProcessUrl" class="btn btn-primary">
+                        Procesar Link
+                    </button>
+                </div>
+                <p class="url-hint">Soporta: YouTube, Vimeo, Twitter/X, Instagram, TikTok, links directos .mp4</p>
+            </div>
+            
+            <!-- Queue Display -->
+            <div id="queueSection" class="queue-section hidden">
+                <h3>📋 Cola de Procesamiento</h3>
+                <div id="queueList" class="queue-list"></div>
+            </div>
+        </section>
+
+        <!-- START BUTTON -->
+        <section class="start-section">
+            <button id="btnStartProcess" class="btn-giant">
+                <span class="btn-icon-large">🚀</span>
+                <span class="btn-text">INICIAR PROCESO</span>
+            </button>
+            <p class="start-hint">
+                También puedes subir vídeos directamente a <code>{{ watch_folder }}</code> para procesamiento automático
+            </p>
+        </section>
+
+        <!-- PROGRESS SECTION -->
+        <section id="progressSection" class="progress-section hidden">
+            <h2>Progreso del Pipeline</h2>
+            
+            <div class="progress-bar-container">
+                <div id="progressBar" class="progress-bar"></div>
+                <span id="progressText" class="progress-text">0%</span>
+            </div>
+            
+            <div id="currentStage" class="current-stage">
+                Esperando inicio...
+            </div>
+        </section>
+
+        <!-- STAGES TIMELINE -->
+        <section id="stagesSection" class="stages-section hidden">
+            <h2>Etapas</h2>
+            <div id="stagesTimeline" class="stages-timeline">
+                <!-- Se llena dinámicamente -->
+            </div>
+        </section>
+
+        <!-- LOGS CONSOLE -->
+        <section class="logs-section">
+            <h2>📋 Logs en Tiempo Real</h2>
+            <pre id="logsConsole" class="logs-console"></pre>
+        </section>
+
+        <!-- PREVIEW SECTION -->
+        <section id="previewSection" class="preview-section hidden">
+            <h2>🎬 Vista Previa del Clip</h2>
+            
+            <video id="videoPreview" controls class="video-preview">
+                <source src="" type="video/mp4">
+                Tu navegador no soporta reproducción de vídeo.
+            </video>
+            
+            <div class="preview-actions">
+                <button id="btnApproveUpload" class="btn btn-primary">
+                    ✅ Aprobar y Subir a YouTube
+                </button>
+                <button id="btnDownload" class="btn btn-secondary">
+                    📥 Descargar
+                </button>
+            </div>
+        </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+    <script>
+        // Elementos del DOM
+        const btnStart = document.getElementById('btnStartProcess');
+        const progressSection = document.getElementById('progressSection');
+        const stagesSection = document.getElementById('stagesSection');
+        const previewSection = document.getElementById('previewSection');
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+        const currentStageEl = document.getElementById('currentStage');
+        const logsConsole = document.getElementById('logsConsole');
+        const stagesTimeline = document.getElementById('stagesTimeline');
+        const videoPreview = document.getElementById('videoPreview');
+        const fileInput = document.getElementById('fileInput');
+        const dropZone = document.getElementById('dropZone');
+        const videoUrlInput = document.getElementById('videoUrl');
+        const btnProcessUrl = document.getElementById('btnProcessUrl');
+        const queueSection = document.getElementById('queueSection');
+        const queueList = document.getElementById('queueList');
+
+        let sessionId = null;
+        let ws = null;
+        let uploadQueue = []; // Cola de vídeos para procesar
+
+        // ========================================================================
+        // DRAG & DROP + MULTI-FILE UPLOAD
+        // ========================================================================
+        
+        // Prevenir comportamientos por defecto del drag & drop
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            document.body.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        // Highlight drop zone cuando se arrastra sobre él
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => {
+                dropZone.classList.add('highlight');
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => {
+                dropZone.classList.remove('highlight');
+            }, false);
+        });
+
+        // Manejar drop de archivos
+        dropZone.addEventListener('drop', handleDrop, false);
+
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            handleFiles(files);
+        }
+
+        // Click en drop zone abre selector de archivos
+        dropZone.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        // Manejar selección de archivos múltiples
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+        });
+
+        // Procesar archivos subidos
+        async function handleFiles(files) {
+            const validTypes = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 
+                               'video/x-matroska', 'video/webm'];
+            
+            for (const file of Array.from(files)) {
+                // Validar tipo de archivo
+                if (!validTypes.some(type => file.type.includes(type.split('/')[1]))) {
+                    addLog(`⚠️ Archivo no válido: ${file.name}`);
+                    continue;
+                }
+
+                // Agregar a la cola
+                addToQueue({
+                    type: 'file',
+                    name: file.name,
+                    size: file.size,
+                    file: file,
+                    status: 'pending'
+                });
+
+                // Subir archivo al servidor
+                await uploadFile(file);
+            }
+        }
+
+        // Subir archivo individual al servidor
+        async function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('video', file);
+            formData.append('filename', file.name);
+
+            try {
+                addLog(`📤 Subiendo: ${file.name} (${formatFileSize(file.size)})`);
+                
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    updateQueueItem(file.name, 'uploaded', result.video_path);
+                    addLog(`✅ Subido exitosamente: ${file.name}`);
+                    
+                    // Auto-iniciar pipeline si es el primer archivo
+                    if (uploadQueue.filter(q => q.status === 'uploaded').length === 1) {
+                        startPipeline(result.video_path);
+                    }
+                } else {
+                    updateQueueItem(file.name, 'error', null, result.error);
+                    addLog(`❌ Error al subir ${file.name}: ${result.error}`);
+                }
+            } catch (error) {
+                updateQueueItem(file.name, 'error', null, error.message);
+                addLog(`❌ Error al subir ${file.name}: ${error.message}`);
+            }
+        }
+
+        // ========================================================================
+        // PROCESAR LINK DE VIDEO
+        // ========================================================================
+        
+        btnProcessUrl.addEventListener('click', async () => {
+            const url = videoUrlInput.value.trim();
+            
+            if (!url) {
+                alert('Por favor ingresa una URL válida');
+                return;
+            }
+
+            addLog(`🔗 Procesando link: ${url}`);
+            
+            try {
+                const response = await fetch('/api/process-url', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({url: url})
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    addToQueue({
+                        type: 'url',
+                        name: result.filename || url,
+                        url: url,
+                        status: 'processing'
+                    });
+                    
+                    addLog(`✅ Link procesado: ${result.filename}`);
+                    videoUrlInput.value = '';
+                    
+                    // Iniciar pipeline con el vídeo descargado
+                    startPipeline(result.video_path);
+                } else {
+                    throw new Error(result.error || 'Error al procesar el link');
+                }
+            } catch (error) {
+                addLog(`❌ Error al procesar link: ${error.message}`);
+                alert(`Error: ${error.message}\n\nSoporta: YouTube, Vimeo, Twitter/X, Instagram, TikTok, links directos .mp4`);
+            }
+        });
+
+        // Permitir Enter para procesar URL
+        videoUrlInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                btnProcessUrl.click();
+            }
+        });
+
+        // ========================================================================
+        // GESTIÓN DE COLA
+        // ========================================================================
+        
+        function addToQueue(item) {
+            uploadQueue.push(item);
+            queueSection.classList.remove('hidden');
+            renderQueue();
+        }
+
+        function updateQueueItem(name, status, videoPath = null, error = null) {
+            const item = uploadQueue.find(q => q.name === name);
+            if (item) {
+                item.status = status;
+                if (videoPath) item.video_path = videoPath;
+                if (error) item.error = error;
+                renderQueue();
+            }
+        }
+
+        function renderQueue() {
+            if (uploadQueue.length === 0) {
+                queueSection.classList.add('hidden');
+                return;
+            }
+
+            queueList.innerHTML = uploadQueue.map((item, index) => `
+                <div class="queue-item ${item.status}">
+                    <span class="queue-icon">${item.type === 'file' ? '📁' : '🔗'}</span>
+                    <span class="queue-name">${item.name}</span>
+                    <span class="queue-status">
+                        ${item.status === 'pending' ? '⏳ Pendiente' : 
+                          item.status === 'uploaded' ? '✅ Listo' :
+                          item.status === 'processing' ? '⚙️ Procesando' :
+                          item.status === 'completed' ? '✅ Completado' :
+                          item.status === 'error' ? '❌ Error' : item.status}
+                    </span>
+                    ${item.status === 'uploaded' ? `
+                        <button class="btn-mini" onclick="startPipeline('${item.video_path}')">
+                            ▶️ Procesar
+                        </button>
+                    ` : ''}
+                    ${item.status === 'error' ? `
+                        <span class="queue-error">${item.error || ''}</span>
+                    ` : ''}
+                </div>
+            `).join('');
+        }
+
+        // ========================================================================
+        // INICIAR PROCESO
+        // ========================================================================
+        
+        // Iniciar proceso
+        btnStart.addEventListener('click', () => {
+            if (uploadQueue.length > 0 && uploadQueue.some(q => q.status === 'uploaded')) {
+                // Hay archivos en cola, preguntar cuál procesar
+                const readyItems = uploadQueue.filter(q => q.status === 'uploaded');
+                if (readyItems.length === 1) {
+                    startPipeline(readyItems[0].video_path);
+                } else if (readyItems.length > 1) {
+                    const options = readyItems.map((item, i) => `${i + 1}. ${item.name}`).join('\n');
+                    alert(`Múltiples vídeos listos:\n${options}\n\nSelecciona el primero para procesar.`);
+                    startPipeline(readyItems[0].video_path);
+                }
+            } else {
+                // Usar watch folder
+                startPipeline(null);
+            }
+        });
+
+        // Iniciar pipeline
+        async function startPipeline(videoPath) {
+            try {
+                btnStart.disabled = true;
+                btnStart.classList.add('loading');
+                
+                const response = await fetch('/api/start', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({video_path: videoPath})
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    sessionId = result.session_id;
+                    
+                    // Mostrar secciones de progreso
+                    progressSection.classList.remove('hidden');
+                    stagesSection.classList.remove('hidden');
+                    
+                    // Conectar WebSocket
+                    connectWebSocket();
+                    
+                    // Polling de estado
+                    pollStatus();
+                } else {
+                    throw new Error(result.detail || 'Error al iniciar');
+                }
+            } catch (error) {
+                alert('❌ Error: ' + error.message);
+                btnStart.disabled = false;
+                btnStart.classList.remove('loading');
+            }
+        }
+
+        // Utilidad: Formatear tamaño de archivo
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+        }
+
+        // Conectar WebSocket
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/ws/logs`);
+
+            ws.onopen = () => {
+                addLog('✅ Conectado a logs en tiempo real');
+            };
+
+            ws.onmessage = (event) => {
+                const data = event.data;
+                
+                if (typeof data === 'string') {
+                    addLog(data);
+                } else if (data.type === 'pipeline_complete') {
+                    handlePipelineComplete(data);
+                }
+            };
+
+            ws.onerror = (error) => {
+                addLog('❌ Error en WebSocket');
+            };
+
+            ws.onclose = () => {
+                addLog('🔌 Desconectado de WebSocket');
+            };
+        }
+
+        // Polling de estado
+        async function pollStatus() {
+            if (!sessionId) return;
+
+            try {
+                const response = await fetch(`/api/status/${sessionId}`);
+                const status = await response.json();
+
+                updateProgress(status);
+                updateStages(status.stages);
+
+                if (status.current_stage < 11) {
+                    setTimeout(pollStatus, 2000);
+                }
+            } catch (error) {
+                console.error('Error polling status:', error);
+            }
+        }
+
+        // Actualizar barra de progreso
+        function updateProgress(status) {
+            const progress = status.progress || 0;
+            progressBar.style.width = `${progress}%`;
+            progressText.textContent = `${progress}%`;
+
+            if (status.stages && status.stages.length > 0) {
+                const current = status.stages[status.current_stage] || {};
+                currentStageEl.textContent = `Fase ${status.current_stage + 1}/11: ${current.name || ''} → ${current.message || ''}`;
+            }
+        }
+
+        // Actualizar timeline de etapas
+        function updateStages(stages) {
+            if (!stages || stages.length === 0) return;
+
+            stagesTimeline.innerHTML = stages.map((stage, i) => `
+                <div class="stage-item ${stage.status}">
+                    <div class="stage-indicator">
+                        ${stage.status === 'completed' ? '✅' : 
+                          stage.status === 'running' ? '⏳' : 
+                          stage.status === 'failed' ? '❌' : '⏸️'}
+                    </div>
+                    <div class="stage-info">
+                        <div class="stage-name">${i + 1}. ${stage.name}</div>
+                        <div class="stage-message">${stage.message || ''}</div>
+                    </div>
+                    <div class="stage-progress">
+                        <div class="mini-bar" style="width: ${stage.progress}%"></div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Manejar completación del pipeline
+        function handlePipelineComplete(data) {
+            addLog(`🎉 Pipeline completado: ${data.success ? 'ÉXITO' : 'FALLÓ'}`);
+            
+            btnStart.disabled = false;
+            btnStart.classList.remove('loading');
+
+            if (data.success && data.output_path) {
+                // Mostrar preview
+                previewSection.classList.remove('hidden');
+                videoPreview.src = `/output/latest.mp4?t=${Date.now()}`;
+                
+                addLog(`📹 Vídeo disponible: ${data.output_path}`);
+            }
+        }
+
+        // Agregar log
+        function addLog(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            const logLine = `[${timestamp}] ${message}\n`;
+            logsConsole.textContent += logLine;
+            logsConsole.scrollTop = logsConsole.scrollHeight;
+        }
+
+        // Botón Aprobar y Subir
+        document.getElementById('btnApproveUpload').addEventListener('click', () => {
+            alert('Funcionalidad de subida a YouTube\n\nEl vídeo se subirá como borrador (privado).\nCompleta los detalles en YouTube Studio.');
+        });
+
+        // Botón Descargar
+        document.getElementById('btnDownload').addEventListener('click', () => {
+            const link = document.createElement('a');
+            link.href = '/output/latest.mp4';
+            link.download = `videoai_clip_${Date.now()}.mp4`;
+            link.click();
+        });
+
+        // Verificar estado del LLM al cargar
+        async function checkLLMStatus() {
+            try {
+                const response = await fetch('/api/test-llm');
+                const result = await response.json();
+                
+                const statusEl = document.querySelector('.llm-status');
+                if (result.ok) {
+                    statusEl.textContent = 'LLM: 🟢 Conectado';
+                    statusEl.classList.add('connected');
+                    statusEl.classList.remove('disconnected');
+                } else {
+                    statusEl.textContent = 'LLM: 🔴 Sin conexión';
+                    statusEl.classList.remove('connected');
+                    statusEl.classList.add('disconnected');
+                }
+            } catch (error) {
+                console.error('Error checking LLM status:', error);
+            }
+        }
+
+        // Inicializar
+        checkLLMStatus();
+        addLog('🎬 VIDEOAI Dashboard cargado');
+        addLog('Esperando inicio del proceso...');
+    </script>
+</body>
+</html>
