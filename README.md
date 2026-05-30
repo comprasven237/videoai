@@ -284,14 +284,6 @@ LLM_API_KEY=sk-ant-...
 - **Utilidades**: requests, numpy, scipy, watchdog
 - **Upload**: selenium, webdriver-manager (opcional)
 
-### PROHIBIDO
-- ❌ openai SDK
-- ❌ anthropic SDK
-- ❌ google-generativeai SDK
-- ❌ cohere SDK
-- ❌ mistralai SDK
-- ❌ Cualquier SDK propietario de IA
-
 **Todo LLM va por requests HTTP puros.**
 
 ---
