@@ -59,17 +59,28 @@ class UnifiedLLMClient:
         # Normalizar endpoint (asegurar que termine sin /)
         self.endpoint = self.llm_config.endpoint.rstrip("/")
         
-        # Construir URL completa para chat completions
-        # El usuario puede poner http://localhost:1234 o http://localhost:1234/v1
-        # Necesitamos asegurarnos de llamar a /chat/completions
-        if self.endpoint.endswith("/v1"):
-            self.chat_url = f"{self.endpoint}/chat/completions"
-        elif "/v1" not in self.endpoint:
-            # Asumir que necesita /v1 agregado
-            self.chat_url = f"{self.endpoint}/v1/chat/completions"
+        # Detectar proveedor para adaptar endpoints
+        self.provider = self.llm_config.provider
+        
+        # Construir URL completa según el proveedor
+        if self.provider == "anthropic":
+            # Anthropic usa /v1/messages
+            if self.endpoint.endswith("/v1"):
+                self.chat_url = f"{self.endpoint}/messages"
+            elif "/v1" not in self.endpoint:
+                self.chat_url = f"{self.endpoint}/v1/messages"
+            else:
+                self.chat_url = f"{self.endpoint}/messages"
         else:
-            self.chat_url = f"{self.endpoint}/chat/completions"        
-        logger.info(f"LLM Client inicializado - Endpoint: {self.chat_url}")
+            # OpenAI y compatibles usan /v1/chat/completions
+            if self.endpoint.endswith("/v1"):
+                self.chat_url = f"{self.endpoint}/chat/completions"
+            elif "/v1" not in self.endpoint:
+                self.chat_url = f"{self.endpoint}/v1/chat/completions"
+            else:
+                self.chat_url = f"{self.endpoint}/chat/completions"
+        
+        logger.info(f"LLM Client inicializado - Proveedor: {self.provider}, Endpoint: {self.chat_url}")
     
     def _build_headers(self) -> Dict[str, str]:
         """
@@ -107,16 +118,32 @@ class UnifiedLLMClient:
         Returns:
             Diccionario con el payload completo
         """
-        payload = {
-            "model": self.llm_config.model,
-            "messages": messages,
-            "temperature": temperature or self.llm_config.temperature
-        }
-        
-        # Solicitar formato JSON si es necesario
-        if json_mode:
-            # Algunos modelos soportan response_format
-            payload["response_format"] = {"type": "json_object"}
+        # Anthropic usa formato diferente
+        if self.provider == "anthropic":
+            payload = {
+                "model": self.llm_config.model,
+                "messages": messages,
+                "max_tokens": 4096,
+                "temperature": temperature or self.llm_config.temperature
+            }
+            
+            # Anthropic no soporta response_format directamente
+            # pero podemos solicitar JSON en el prompt
+            if json_mode:
+                # Agregar instrucción al último mensaje del usuario
+                if messages and messages[-1]["role"] == "user":
+                    messages[-1]["content"] += "\n\nResponde SOLO con JSON válido, sin texto adicional."
+        else:
+            # Formato OpenAI estándar
+            payload = {
+                "model": self.llm_config.model,
+                "messages": messages,
+                "temperature": temperature or self.llm_config.temperature
+            }
+            
+            # Solicitar formato JSON si es necesario
+            if json_mode:
+                payload["response_format"] = {"type": "json_object"}
         
         return payload
     
@@ -220,14 +247,25 @@ class UnifiedLLMClient:
                 # Parsear respuesta
                 data = response.json()
                 
-                # Extraer contenido de la respuesta
-                # Formato estándar OpenAI: choices[0].message.content
-                if "choices" not in data or len(data["choices"]) == 0:
-                    raise LLMResponseError(
-                        "Respuesta inválida: no contiene 'choices'"
-                    )
-                
-                content = data["choices"][0]["message"]["content"]
+                # Extraer contenido según el proveedor
+                if self.provider == "anthropic":
+                    # Anthropic: content es una lista de bloques de texto
+                    if "content" not in data:
+                        raise LLMResponseError(
+                            "Respuesta inválida de Anthropic: no contiene 'content'"
+                        )
+                    # Anthropic devuelve: {"content": [{"type": "text", "text": "..."}]}
+                    content_blocks = data["content"]
+                    if not content_blocks or not isinstance(content_blocks, list):
+                        raise LLMResponseError("Respuesta inválida: content no es una lista")
+                    content = content_blocks[0].get("text", "")
+                else:
+                    # OpenAI estándar: choices[0].message.content
+                    if "choices" not in data or len(data["choices"]) == 0:
+                        raise LLMResponseError(
+                            "Respuesta inválida: no contiene 'choices'"
+                        )
+                    content = data["choices"][0]["message"]["content"]
                 
                 # Log sin exponer API keys
                 logger.info(f"LLM response recibida ({len(content)} caracteres)")
@@ -272,7 +310,6 @@ class UnifiedLLMClient:
         # Intento 2: Buscar bloque JSON en el contenido
         # El LLM a veces agrega texto antes/después del JSON
         import re
-        json_pattern = r'\{[^{}]*\}|\{(?:[^{}]|(?R))*\}'
         matches = re.findall(r'\{.*?\}', content, re.DOTALL)
         
         for match in reversed(matches):  # Probar desde el último (más probable)
