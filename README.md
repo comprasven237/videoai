@@ -1,725 +1,356 @@
---- README.md (原始)
-# 🎬 Video Automator - Sistema de Producción de Vídeo Automatizado
+# 🎬 VIDEOAI - Sistema de Producción de Vídeo Automatizado
 
-Sistema completo de producción de vídeo automatizado con arquitectura híbrida (Local LLM + API externa configurable), inspirado en el patrón "Tú grabas, la IA edita y anima".
+## Descripción
 
-## 📋 Descripción
+VIDEOAI es un sistema completo de producción de vídeo automatizado con arquitectura híbrida (LLM Local configurable + API externa configurable), inspirado en el patrón "Tú grabas, la IA edita y anima".
 
-Transforma vídeos crudos (horizontales o verticales, 5-60 min) en clips virales verticales (9:16) de 30 a 90 segundos, listos para TikTok, Reels y Shorts.
+Transforma vídeos crudos (horizontales o verticales, 5-60 min) en clips virales verticales (9:16) de 30 a 90 segundos listos para TikTok, Reels y Shorts.
 
-### Flujo Completo
+## ⚠️ PRINCIPIO FUNDAMENTAL: SISTEMA 100% AGNÓSTICO A LA IA
+
+**Este sistema NUNCA asume qué herramienta de IA usa el usuario.**
+
+Tanto el servidor LLM local como el servicio de API externo son configurados por el propio usuario al momento de iniciar el sistema por primera vez (o desde el panel de configuración del Dashboard).
+
+### MODO LOCAL
+El sistema se conecta a CUALQUIER servidor local que exponga un endpoint compatible con el formato `/v1/chat/completions`:
+- Ollama
+- LM Studio  
+- vLLM
+- Text Generation WebUI
+- Cualquier otro servidor compatible con OpenAI API format
+
+### MODO API
+El sistema se conecta a CUALQUIER proveedor de API que exponga un endpoint compatible:
+- OpenAI
+- Anthropic
+- Google AI
+- Mistral
+- Cohere
+- Cualquier otro proveedor con formato estándar
+
+**REGLA ABSOLUTA:** El código NO hardcodea ni asume ningún proveedor, modelo o URL específica. Todos los campos son libres y los completa el usuario.
+
+---
+
+## 🚀 Flujo de Producción (11 Etapas)
+
 ```
-Grabación → Transcripción → Limpieza IA → Recorte Físico → Animación Segmentada → Render → Upload Opcional
+┌─────────────────────────────────────────────────────────────────┐
+│  ETAPA 1  [INGESTA]      Watcher detecta nuevo vídeo            │
+│  ETAPA 2  [TRANSCODIF.]  ffmpeg → MP4 H.264/AAC, 30fps          │
+│  ETAPA 3  [STT LOCAL]    faster-whisper → JSON con timestamps   │
+│  ETAPA 4  [HIGHLIGHTS]   LLM → Extrae momentos virales          │
+│  ETAPA 5  [LIMPIEZA]     LLM → Elimina muletillas, retakes      │
+│  ETAPA 6  [CORTE FÍSICO] timestamp_aligner → cortes exactos     │
+│  ETAPA 7  [SMART CROP]   OpenCV → 1080x1920 (9:16)              │
+│  ETAPA 8  [PLAN ANIM.]   LLM → animation_plan.json              │
+│  ETAPA 9  [ANIMACIÓN]    Sesión LLM fresca por segmento <15s    │
+│  ETAPA 10 [COMPOSICIÓN]  Ensambla vídeo + animaciones + subs    │
+│  ETAPA 11 [VALIDACIÓN]   ffprobe valida → upload opcional       │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-## 🏗️ Arquitectura
+---
 
-El sistema sigue el **patrón de 3 carpetas de Iván Prats**:
+## 📁 Estructura del Proyecto
 
 ```
-project_root/
-├── packaging/     # Ideas, guiones, thumbnails, títulos (input creativo)
-├── cleaning/      # Vídeo crudo → vídeo limpio (STT + corte IA)
-└── animation/     # Plan de animación → assets → composición final
+VIDEOAI/
+├── config.py              # Configuración con Pydantic Settings
+├── .env.example           # Plantilla de variables de entorno
+├── config.yaml            # Valores por defecto
+├── requirements.txt       # Dependencias Python
+├── main.py                # FastAPI + Dashboard + WebSockets
+├── pipeline.py            # Orquestador de 11 etapas
+│
+├── helpers/
+│   ├── __init__.py
+│   ├── llm_client.py      # Cliente HTTP puro (requests), agnóstico
+│   ├── stt_engine.py      # Wrapper faster-whisper
+│   ├── timestamp_aligner.py  # Word-level alignment
+│   ├── video_processor.py # Crop, subtítulos, ducking
+│   ├── animation_executor.py # Animación segmentada
+│   ├── file_watcher.py    # Watch folder pattern
+│   └── uploader.py        # YouTube upload (opcional)
+│
+├── prompts/
+│   ├── highlight_extraction.md
+│   ├── script_cleanup.md
+│   ├── animation_plan.md
+│   ├── thumbnail_title.md
+│   └── metadata_gen.md
+│
+├── templates/
+│   ├── setup_wizard.html  # Wizard de configuración inicial
+│   └── index.html         # Dashboard principal
+│
+├── static/
+│   ├── style.css
+│   └── app.js
+│
+├── packaging/             # Ideas, guiones, thumbnails
+├── cleaning/
+│   ├── raw/               # Vídeos crudos de entrada
+│   ├── transcriptions/    # Transcripciones JSON
+│   └── cleaned/           # Vídeos limpiados
+├── animation/
+│   ├── plans/             # Animation plans JSON
+│   ├── segments/          # Assets de animación
+│   └── composed/          # Vídeos compuestos
+├── output/                # Clips finales
+├── assets/                # Recursos adicionales
+├── logs/                  # Logs del sistema
+└── state/                 # Estado para reanudación
 ```
 
-### Separación Crítica: IA vs Código Determinista
+---
 
-| Tarea | Implementación | Razón |
-|-------|---------------|-------|
-| Extraer highlights | LLM (no-determinista) | Requiere juicio creativo |
-| Limpiar guion | LLM (no-determinista) | Mantener tono auténtico |
-| Planificar animaciones | LLM (no-determinista) | Creatividad visual |
-| Cortar vídeo | FFmpeg (determinista) | Precisión frame-perfect |
-| Smart crop | OpenCV (determinista) | Algoritmos de visión |
-| Render final | FFmpeg (determinista) | Consistencia garantizada |
-
-## 🚀 Instalación
+## 🔧 Instalación
 
 ### Requisitos Previos
 
 - Python 3.10+
-- FFmpeg instalado y en PATH
-- Ollama/vLLM/LM Studio (para modo local) O API key (para modo externo)
+- FFmpeg instalado en el sistema
+- GPU NVIDIA recomendada (para faster-whisper)
 
 ### Pasos de Instalación
 
 ```bash
-# 1. Clonar/navegar al directorio
-cd /workspace
+# 1. Clonar repositorio
+git clone <repo-url>
+cd VIDEOAI
 
-# 2. Crear entorno virtual (recomendado)
+# 2. Crear entorno virtual
 python -m venv venv
 source venv/bin/activate  # Linux/Mac
 # o
-venv\Scripts\activate  # Windows
+venv\Scripts\activate     # Windows
 
 # 3. Instalar dependencias
 pip install -r requirements.txt
 
-# 4. Configurar variables de entorno
-cp .env.example .env
-# Editar .env según tu configuración
-
-# 5. Iniciar servidor
+# 4. Iniciar el sistema
 python main.py
 ```
 
-### Acceso al Dashboard
+### Primer Uso
 
-Abre tu navegador en: **http://localhost:5555**
+Al ejecutar `main.py` por primera vez:
+
+1. El Dashboard se abre en `http://localhost:5555`
+2. Se muestra automáticamente el **Wizard de Configuración**
+3. Configura tu modo de IA (Local o API)
+4. Ingresa los datos de tu endpoint/modelo
+5. Prueba la conexión
+6. Guarda y comienza a usar
+
+---
 
 ## ⚙️ Configuración
 
 ### Variables de Entorno (.env)
 
-```bash
-# Modo de operación del LLM
-LLM_MODE=local          # local | api
-LLM_ENDPOINT=http://localhost:11434/v1
-LLM_MODEL=llama3.1:8b
-API_KEY=                # Solo si LLM_MODE=api
+```env
+# MODO DE IA: "local" o "api"
+LLM_MODE=local
 
-# Configuración STT
-STT_MODEL_SIZE=base     # tiny, base, small, medium, large
+# URL del endpoint (servidor local o proveedor API)
+LLM_ENDPOINT=http://localhost:1234/v1
 
-# Output
+# Nombre del modelo a usar
+LLM_MODEL=llama-2-7b
+
+# API Key (dejar vacío si es modo local)
+LLM_API_KEY=
+
+# Modelo de Speech-to-Text
+STT_MODEL_SIZE=base
+
+# Duración objetivo del clip final (segundos)
 OUTPUT_DURATION_MIN=30
 OUTPUT_DURATION_MAX=90
+
+# Resolución de output (vertical 9:16)
 RESOLUTION=1080x1920
 
-# Rutas
-WATCH_FOLDER=/workspace/cleaning/raw
+# Carpeta de entrada de vídeos crudos
+WATCH_FOLDER=./cleaning/raw
 
-# Upload
+# Subida automática a YouTube
 YOUTUBE_UPLOAD_ENABLED=false
+
+# Puerto del Dashboard
+DASHBOARD_PORT=5555
 ```
-
-### Configuración Avanzada (config.yaml)
-
-```yaml
-llm:
-  mode: "local"
-  endpoint: "http://localhost:11434/v1"
-  model: "llama3.1:8b"
-  timeout: 60
-  max_retries: 2
-
-stt:
-  model_size: "base"
-  device: "cpu"
-  compute_type: "int8"
-
-output:
-  duration_min: 30
-  duration_max: 90
-  resolution: "1080x1920"
-  video_bitrate: "8M"
-
-animation:
-  segment_max_duration: 15  # Segundos por segmento
-  max_concurrent_segments: 3
-```
-
-## 📖 Uso
-
-### Método 1: Dashboard Web (Recomendado)
-
-1. Abre http://localhost:5555
-2. Haz clic en "📁 Seleccionar Vídeo"
-3. Elige tu archivo de vídeo
-4. Presiona "🚀 INICIAR PROCESO"
-5. Monitorea el progreso en tiempo real
-6. Descarga o aprueba el resultado final
-
-### Método 2: Watch Folder
-
-Coloca vídeos en `/workspace/cleaning/raw/` y el sistema los detectará automáticamente.
-
-### Pipeline de 11 Etapas
-
-| Etapa | Nombre | Descripción |
-|-------|--------|-------------|
-| 1 | Ingesta | Validación y copia del vídeo |
-| 2 | Transcodificación | Conversión a H.264/AAC estándar |
-| 3 | STT | Transcripción palabra-por-palabra con Whisper |
-| 4 | Highlights | Extracción de segmentos virales con LLM |
-| 5 | Limpieza Guion | Eliminación de muletillas/redundancias |
-| 6 | Alineación y Corte | Corte preciso basado en timestamps |
-| 7 | Smart Crop 9:16 | Recorte inteligente a vertical |
-| 8 | Plan Animación | Generación de plan de animaciones |
-| 9 | Animación Segmentada | Ejecución por segmentos (<15s cada uno) |
-| 10 | Composición | Ensamblaje final con subtítulos |
-| 11 | Validación | Verificación de duración y calidad |
-
-## 🔧 Componentes Principales
-
-### helpers/llm_client.py
-Cliente HTTP unificado para LLM (local o API). Soporta:
-- Ollama, vLLM, LM Studio (modo local)
-- APIs compatibles con OpenAI (modo externo)
-- Reintentos automáticos con backoff exponencial
-- Parseo robusto de JSON
-
-### helpers/stt_engine.py
-Motor de Speech-to-Text usando faster-whisper:
-- Transcripción palabra-por-palabra
-- Timestamps precisos en milisegundos
-- Detección automática de idioma
-- Filtro VAD para mejor precisión
-
-### helpers/timestamp_aligner.py
-Alineación difusa entre guion limpio y transcripción original:
-- Algoritmo SequenceMatcher para matching
-- Cortes frame-perfect con FFmpeg
-- Fusión inteligente de segmentos adyacentes
-
-### helpers/video_processor.py
-Procesamiento de vídeo avanzado:
-- `smart_crop_9_16`: Detección de caras + tracking
-- `burn_karaoke_subtitles`: Subtítulos estilo karaoke
-- `apply_audio_ducking`: Compresión sidechain
-- `validate_duration`: Validación estricta 30-90s
-
-### helpers/animation_executor.py
-Patrón de animación segmentada:
-- Divide plan en segmentos <15 segundos
-- Ejecuta LLM en sesión fresca por segmento
-- Evita degradación por contexto largo
-- Ensambla resultados determinísticamente
-
-### pipeline.py
-Orquestador asíncrono del pipeline completo:
-- Gestión de estado persistente
-- Callbacks para progreso en tiempo real
-- Recuperación de procesos interrumpidos
-- Logging estructurado por etapa
-
-## 🌐 API Endpoints
-
-| Endpoint | Método | Descripción |
-|----------|--------|-------------|
-| `/` | GET | Dashboard web |
-| `/api/start` | POST | Iniciar pipeline |
-| `/api/status/{session_id}` | GET | Estado del proceso |
-| `/api/pipelines` | GET | Listar pipelines activos |
-| `/ws/logs` | WebSocket | Logs en tiempo real |
-| `/output/latest.mp4` | GET | Último vídeo generado |
-| `/api/config` | GET/POST | Configuración del sistema |
-
-## 📁 Estructura de Directorios
-
-```
-/workspace
-├── config.py              # Configuración unificada Pydantic
-├── main.py                # Servidor FastAPI
-├── pipeline.py            # Orquestador del pipeline
-├── helpers/
-│   ├── llm_client.py
-│   ├── stt_engine.py
-│   ├── timestamp_aligner.py
-│   ├── video_processor.py
-│   ├── animation_executor.py
-│   ├── file_watcher.py
-│   └── uploader.py
-├── prompts/               # System prompts para LLM
-├── templates/             # HTML dashboard
-├── static/                # CSS/JS frontend
-├── cleaning/raw/          # Watch folder para vídeos
-├── output/                # Clips finales
-└── state/                 # Estados persistentes
-```
-
-## 🔍 Solución de Problemas
-
-### FFmpeg no encontrado
-```bash
-# Ubuntu/Debian
-sudo apt-get install ffmpeg
-
-# macOS
-brew install ffmpeg
-
-# Windows
-# Descargar de https://ffmpeg.org/download.html
-# Añadir al PATH
-```
-
-### Error de conexión con LLM local
-```bash
-# Verificar que Ollama esté corriendo
-ollama serve
-
-# Verificar modelo disponible
-ollama list
-
-# Pull del modelo si falta
-ollama pull llama3.1:8b
-```
-
-### Vídeos demasiado largos/cortos
-Ajusta en `.env`:
-```bash
-OUTPUT_DURATION_MIN=30
-OUTPUT_DURATION_MAX=90
-```
-
-### Memoria insuficiente para Whisper
-Usa modelo más pequeño:
-```bash
-STT_MODEL_SIZE=tiny  # o base
-```
-
-## 📊 Métricas de Calidad
-
-El sistema valida automáticamente:
-- ✅ Duración: 30-90 segundos
-- ✅ Bitrate mínimo: 8 Mbps
-- ✅ Audio: -14 LUFS (estándar YouTube)
-- ✅ Resolución: 1080x1920 (9:16)
-- ✅ Subtítulos quemados: Sí
-- ✅ Formato: MP4 H.264/AAC
-
-## 🚨 Consideraciones Importantes
-
-1. **Primera ejecución**: La descarga del modelo Whisper puede tardar varios minutos
-2. **GPU opcional**: El sistema funciona en CPU, pero CUDA acelera significativamente
-3. **Upload automático**: Requiere autenticación previa (cookies/netrc para yt-dlp)
-4. **Contexto LLM**: Animación segmentada evita degradación en vídeos largos
-
-## 📝 Licencia
-
-Este proyecto es open source bajo licencia MIT.
-
-## 🤝 Contribuciones
-
-Las contribuciones son bienvenidas. Por favor:
-1. Fork el repositorio
-2. Crea rama para feature (`git checkout -b feature/amazing`)
-3. Commit cambios (`git commit -m 'Add amazing feature'`)
-4. Push a rama (`git push origin feature/amazing`)
-5. Abre Pull Request
 
 ---
 
-**Desarrollado siguiendo las mejores prácticas de automatización de vídeo con IA.**
+## 🎯 Características Principales
 
-+++ README.md (修改后)
-# 🎬 Video AI Automator - Sistema de Producción de Vídeo Automatizado
+### 1. Backend Dual Configurable (Agnóstico)
+- Cliente HTTP unificado usando SOLO `requests`
+- CERO SDKs propietarios
+- Compatible con cualquier endpoint `/v1/chat/completions`
 
-Sistema completo de producción de vídeo automatizado con **arquitectura híbrida agnóstica** (cualquier Local LLM + cualquier API externa compatible), inspirado en el patrón "Tú grabas, la IA edita y anima".
+### 2. Separación Crítica IA vs Código Determinista
+- **IA**: Tareas creativas no-deterministas (highlights, limpieza, plan de animación)
+- **Helpers Python**: Tareas mecánicas (cortar, alinear, renderizar) SIN consumo de tokens
 
-## 📋 Descripción
+### 3. Watch Folder Pattern
+- Monitoreo automático de `/cleaning/raw/`
+- Disparo asíncrono del pipeline al detectar nuevo vídeo
+- Estado persistente para reanudar procesos interrumpidos
 
-Transforma vídeos crudos (horizontales o verticales, 5-60 min) en clips virales verticales (9:16) de 30 a 90 segundos, listos para TikTok, Reels y Shorts.
+### 4. Animación Segmentada (Evita Degradación de Contexto)
+- Plan de animación generado por IA
+- Cada segmento <15s se procesa en sesión LLM FRESCA
+- Resultados ensamblados determinísticamente
 
-### Flujo Completo
-```
-Grabación → Transcripción → Limpieza IA → Recorte Físico → Animación Segmentada → Render → Upload Opcional
-```
+### 5. Alineación Word-Level Timestamp
+- faster-whisper genera timestamps por palabra
+- Comparación difusa guion limpio vs transcripción original
+- Cortes exactos en milisegundos (frame-perfect)
 
-## 🚀 Instalación Rápida
+### 6. Interfaz Única (Dashboard)
+- Wizard de configuración inicial
+- Botón gigante "🚀 INICIAR PROCESO"
+- Barra de progreso detallada
+- Logs en tiempo real vía WebSockets
+- Previsualización del clip final
 
-### Windows
+---
 
-```powershell
-# Descargar el proyecto
-git clone https://github.com/tu-usuario/videoai.git
-cd videoai
+## 🔌 Ejemplos de Configuración
 
-# Ejecutar instalador automático (como Administrador)
-.\install_windows.ps1
-```
+### Servidor Local con Ollama
 
-El instalador de Windows:
-- ✅ Verifica e instala Python 3.12 si es necesario
-- ✅ Instala FFmpeg automáticamente
-- ✅ Crea entorno virtual
-- ✅ Instala todas las dependencias
-- ✅ Crea acceso directo en el escritorio
-
-### macOS
-
-```bash
-# Descargar el proyecto
-git clone https://github.com/tu-usuario/videoai.git
-cd videoai
-
-# Hacer ejecutable e instalar
-chmod +x install_macos.sh
-./install_macos.sh
-```
-
-El instalador de macOS:
-- ✅ Verifica e instala Homebrew si es necesario
-- ✅ Instala Python 3.12 y FFmpeg vía Homebrew
-- ✅ Crea entorno virtual
-- ✅ Instala todas las dependencias
-- ✅ Crea aplicación nativa `Video AI Automator.app`
-- ✅ Agrega alias `videoai` a tu shell
-
-### Linux (Manual)
-
-```bash
-# Clonar repositorio
-git clone https://github.com/tu-usuario/videoai.git
-cd videoai
-
-# Instalar dependencias del sistema
-sudo apt-get update && sudo apt-get install -y python3 python3-pip ffmpeg
-
-# Crear entorno virtual
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Instalar dependencias Python
-pip install -r requirements.txt
-
-# Copiar configuración
-cp .env.example .env
-```
-
-## 🏗️ Arquitectura
-
-El sistema sigue el **patrón de 3 carpetas de Iván Prats**:
-
-```
-project_root/
-├── packaging/     # Ideas, guiones, thumbnails, títulos (input creativo)
-├── cleaning/      # Vídeo crudo → vídeo limpio (STT + corte IA)
-└── animation/     # Plan de animación → assets → composición final
-```
-
-### Separación Crítica: IA vs Código Determinista
-
-| Tarea | Implementación | Razón |
-|-------|---------------|-------|
-| Extraer highlights | LLM (no-determinista) | Requiere juicio creativo |
-| Limpiar guion | LLM (no-determinista) | Mantener tono auténtico |
-| Planificar animaciones | LLM (no-determinista) | Creatividad visual |
-| Cortar vídeo | FFmpeg (determinista) | Precisión frame-perfect |
-| Smart crop | OpenCV (determinista) | Algoritmos de visión |
-| Render final | FFmpeg (determinista) | Consistencia garantizada |
-
-## 🚀 Instalación
-
-### Requisitos Previos
-
-- Python 3.10+
-- FFmpeg instalado y en PATH
-- Ollama/vLLM/LM Studio (para modo local) O API key (para modo externo)
-
-### Pasos de Instalación
-
-```bash
-# 1. Clonar/navegar al directorio
-cd /workspace
-
-# 2. Crear entorno virtual (recomendado)
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# o
-venv\Scripts\activate  # Windows
-
-# 3. Instalar dependencias
-pip install -r requirements.txt
-
-# 4. Configurar variables de entorno
-cp .env.example .env
-# Editar .env según tu configuración
-
-# 5. Iniciar servidor
-python main.py
-```
-
-### Acceso al Dashboard
-
-Abre tu navegador en: **http://localhost:5555**
-
-## 🔄 Proveedores LLM Soportados
-
-El sistema es **100% agnóstico** y funciona con cualquier proveedor compatible con el formato OpenAI API.
-
-### Locales (sin API Key)
-
-| Proveedor | Endpoint por defecto | Modelos recomendados |
-|-----------|---------------------|----------------------|
-| **Ollama** | `http://localhost:11434/v1` | llama3.1:8b, mistral, gemma2 |
-| **vLLM** | `http://localhost:5000/v1` | Cualquier modelo HF |
-| **LM Studio** | `http://localhost:1234/v1` | Modelos locales GGUF |
-| **Text Generation WebUI** | `http://localhost:5000/v1` | Cualquier modelo |
-
-### APIs Externas (con API Key)
-
-| Proveedor | Endpoint | Notas |
-|-----------|----------|-------|
-| **OpenAI** | `https://api.openai.com/v1` | gpt-4o, gpt-4-turbo, gpt-3.5-turbo |
-| **Groq** | `https://api.groq.com/openai/v1` | Ultra-rápido, gratis con límites |
-| **Together AI** | `https://api.together.xyz/v1` | Amplia variedad de modelos |
-| **Fireworks AI** | `https://api.fireworks.ai/inference/v1` | Modelos optimizados |
-| **Cerebras** | `https://api.cerebras.ai/v1` | Inferencia acelerada |
-| **DeepSeek** | `https://api.deepseek.com/v1` | Modelos chinos de alta calidad |
-| **Any Other** | Tu endpoint personalizado | Compatible con OpenAI API |
-
-### Configuración para cada proveedor
-
-```bash
-# Ollama (Local - Gratis)
+```env
 LLM_MODE=local
 LLM_ENDPOINT=http://localhost:11434/v1
-LLM_MODEL=llama3.1:8b
-API_KEY=
+LLM_MODEL=llama2
+LLM_API_KEY=
+```
 
-# Groq (API - Gratis con límites)
-LLM_MODE=api
-LLM_ENDPOINT=https://api.groq.com/openai/v1
-LLM_MODEL=llama3-70b-8192
-API_KEY=gsk_...
+### Servidor Local con LM Studio
 
-# OpenAI (API - Pago)
+```env
+LLM_MODE=local
+LLM_ENDPOINT=http://localhost:1234/v1
+LLM_MODEL=local-model
+LLM_API_KEY=
+```
+
+### API Externa (OpenAI)
+
+```env
 LLM_MODE=api
 LLM_ENDPOINT=https://api.openai.com/v1
-LLM_MODEL=gpt-4o-mini
-API_KEY=sk-...
+LLM_MODEL=gpt-4-turbo-preview
+LLM_API_KEY=sk-...
+```
 
-# Together AI (API - Pago económico)
+### API Externa (Anthropic)
+
+```env
 LLM_MODE=api
-LLM_ENDPOINT=https://api.together.xyz/v1
-LLM_MODEL=meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo
-API_KEY=...
+LLM_ENDPOINT=https://api.anthropic.com/v1
+LLM_MODEL=claude-3-opus-20240229
+LLM_API_KEY=sk-ant-...
 ```
 
-## ⚙️ Configuración
+---
 
-### Variables de Entorno (.env)
+## 📊 Métricas Técnicas
 
-```bash
-# Modo de operación del LLM
-LLM_MODE=local          # local | api
-LLM_ENDPOINT=http://localhost:11434/v1
-LLM_MODEL=llama3.1:8b
-API_KEY=                # Solo si LLM_MODE=api
+| Parámetro | Valor |
+|-----------|-------|
+| Duración Output | 30-90 segundos (configurable) |
+| Resolución | 1080x1920 (9:16 vertical) |
+| Bitrate Mínimo | 8 Mbps |
+| Audio | -14 LUFS |
+| FPS | 30 |
+| Codecs | H.264 (vídeo), AAC (audio) |
+| Subtítulos | Quemados estilo karaoke |
 
-# Configuración STT
-STT_MODEL_SIZE=base     # tiny, base, small, medium, large
+---
 
-# Output
-OUTPUT_DURATION_MIN=30
-OUTPUT_DURATION_MAX=90
-RESOLUTION=1080x1920
+## 🛠️ Stack Técnico
 
-# Rutas
-WATCH_FOLDER=/workspace/cleaning/raw
+### Python Libraries
+- **Web Framework**: fastapi, uvicorn, websockets, jinja2
+- **Config**: pydantic-settings, pyyaml, python-dotenv
+- **Vídeo/Audio**: faster-whisper, ffmpeg-python, opencv-python, pillow
+- **Utilidades**: requests, numpy, scipy, watchdog
+- **Upload**: selenium, webdriver-manager (opcional)
 
-# Upload
-YOUTUBE_UPLOAD_ENABLED=false
-```
+### PROHIBIDO
+- ❌ openai SDK
+- ❌ anthropic SDK
+- ❌ google-generativeai SDK
+- ❌ cohere SDK
+- ❌ mistralai SDK
+- ❌ Cualquier SDK propietario de IA
 
-### Configuración Avanzada (config.yaml)
+**Todo LLM va por requests HTTP puros.**
 
-```yaml
-llm:
-  mode: "local"
-  endpoint: "http://localhost:11434/v1"
-  model: "llama3.1:8b"
-  timeout: 60
-  max_retries: 2
+---
 
-stt:
-  model_size: "base"
-  device: "cpu"
-  compute_type: "int8"
+## 🔒 Seguridad
 
-output:
-  duration_min: 30
-  duration_max: 90
-  resolution: "1080x1920"
-  video_bitrate: "8M"
+- API keys se guardan en `.env` (no versionar en git)
+- Las keys no se exponen en logs ni respuestas
+- WebSocket connections validadas por origen
+- File watcher limitado a carpeta específica
 
-animation:
-  segment_max_duration: 15  # Segundos por segmento
-  max_concurrent_segments: 3
-```
+---
 
-## 📖 Uso
+## 🐛 Solución de Problemas
 
-### Método 1: Dashboard Web (Recomendado)
+### El LLM no conecta
+1. Verifica que el servidor/API esté corriendo
+2. Prueba la URL en navegador: `{LLM_ENDPOINT}/chat/completions`
+3. Usa el botón "Probar conexión" en el Dashboard
+4. Revisa logs para mensajes de error específicos
 
-1. Abre http://localhost:5555
-2. Haz clic en "📁 Seleccionar Vídeo"
-3. Elige tu archivo de vídeo
-4. Presiona "🚀 INICIAR PROCESO"
-5. Monitorea el progreso en tiempo real
-6. Descarga o aprueba el resultado final
-
-### Método 2: Watch Folder
-
-Coloca vídeos en `/workspace/cleaning/raw/` y el sistema los detectará automáticamente.
-
-### Pipeline de 11 Etapas
-
-| Etapa | Nombre | Descripción |
-|-------|--------|-------------|
-| 1 | Ingesta | Validación y copia del vídeo |
-| 2 | Transcodificación | Conversión a H.264/AAC estándar |
-| 3 | STT | Transcripción palabra-por-palabra con Whisper |
-| 4 | Highlights | Extracción de segmentos virales con LLM |
-| 5 | Limpieza Guion | Eliminación de muletillas/redundancias |
-| 6 | Alineación y Corte | Corte preciso basado en timestamps |
-| 7 | Smart Crop 9:16 | Recorte inteligente a vertical |
-| 8 | Plan Animación | Generación de plan de animaciones |
-| 9 | Animación Segmentada | Ejecución por segmentos (<15s cada uno) |
-| 10 | Composición | Ensamblaje final con subtítulos |
-| 11 | Validación | Verificación de duración y calidad |
-
-## 🔧 Componentes Principales
-
-### helpers/llm_client.py
-Cliente HTTP unificado para LLM (local o API). Soporta:
-- Ollama, vLLM, LM Studio (modo local)
-- APIs compatibles con OpenAI (modo externo)
-- Reintentos automáticos con backoff exponencial
-- Parseo robusto de JSON
-
-### helpers/stt_engine.py
-Motor de Speech-to-Text usando faster-whisper:
-- Transcripción palabra-por-palabra
-- Timestamps precisos en milisegundos
-- Detección automática de idioma
-- Filtro VAD para mejor precisión
-
-### helpers/timestamp_aligner.py
-Alineación difusa entre guion limpio y transcripción original:
-- Algoritmo SequenceMatcher para matching
-- Cortes frame-perfect con FFmpeg
-- Fusión inteligente de segmentos adyacentes
-
-### helpers/video_processor.py
-Procesamiento de vídeo avanzado:
-- `smart_crop_9_16`: Detección de caras + tracking
-- `burn_karaoke_subtitles`: Subtítulos estilo karaoke
-- `apply_audio_ducking`: Compresión sidechain
-- `validate_duration`: Validación estricta 30-90s
-
-### helpers/animation_executor.py
-Patrón de animación segmentada:
-- Divide plan en segmentos <15 segundos
-- Ejecuta LLM en sesión fresca por segmento
-- Evita degradación por contexto largo
-- Ensambla resultados determinísticamente
-
-### pipeline.py
-Orquestador asíncrono del pipeline completo:
-- Gestión de estado persistente
-- Callbacks para progreso en tiempo real
-- Recuperación de procesos interrumpidos
-- Logging estructurado por etapa
-
-## 🌐 API Endpoints
-
-| Endpoint | Método | Descripción |
-|----------|--------|-------------|
-| `/` | GET | Dashboard web |
-| `/api/start` | POST | Iniciar pipeline |
-| `/api/status/{session_id}` | GET | Estado del proceso |
-| `/api/pipelines` | GET | Listar pipelines activos |
-| `/ws/logs` | WebSocket | Logs en tiempo real |
-| `/output/latest.mp4` | GET | Último vídeo generado |
-| `/api/config` | GET/POST | Configuración del sistema |
-
-## 📁 Estructura de Directorios
-
-```
-/workspace
-├── config.py              # Configuración unificada Pydantic
-├── main.py                # Servidor FastAPI
-├── pipeline.py            # Orquestador del pipeline
-├── helpers/
-│   ├── llm_client.py
-│   ├── stt_engine.py
-│   ├── timestamp_aligner.py
-│   ├── video_processor.py
-│   ├── animation_executor.py
-│   ├── file_watcher.py
-│   └── uploader.py
-├── prompts/               # System prompts para LLM
-├── templates/             # HTML dashboard
-├── static/                # CSS/JS frontend
-├── cleaning/raw/          # Watch folder para vídeos
-├── output/                # Clips finales
-└── state/                 # Estados persistentes
-```
-
-## 🔍 Solución de Problemas
+### faster-whisper falla
+1. Verifica instalación: `pip show faster-whisper`
+2. Para GPU: instala CUDA drivers y `pip install faster-whisper[cuda118]`
+3. Para CPU: usa modelo más pequeño (`tiny` o `base`)
 
 ### FFmpeg no encontrado
-```bash
-# Ubuntu/Debian
-sudo apt-get install ffmpeg
+- Linux: `sudo apt install ffmpeg`
+- Mac: `brew install ffmpeg`
+- Windows: Descargar de ffmpeg.org y agregar al PATH
 
-# macOS
-brew install ffmpeg
+### Pipeline se traba
+1. Revisa `state/.pipeline_state.json` para ver última etapa completada
+2. Reinicia el proceso desde esa etapa
+3. Si persiste, borra el estado y reinicia desde cero
 
-# Windows
-# Descargar de https://ffmpeg.org/download.html
-# Añadir al PATH
-```
-
-### Error de conexión con LLM local
-```bash
-# Verificar que Ollama esté corriendo
-ollama serve
-
-# Verificar modelo disponible
-ollama list
-
-# Pull del modelo si falta
-ollama pull llama3.1:8b
-```
-
-### Vídeos demasiado largos/cortos
-Ajusta en `.env`:
-```bash
-OUTPUT_DURATION_MIN=30
-OUTPUT_DURATION_MAX=90
-```
-
-### Memoria insuficiente para Whisper
-Usa modelo más pequeño:
-```bash
-STT_MODEL_SIZE=tiny  # o base
-```
-
-## 📊 Métricas de Calidad
-
-El sistema valida automáticamente:
-- ✅ Duración: 30-90 segundos
-- ✅ Bitrate mínimo: 8 Mbps
-- ✅ Audio: -14 LUFS (estándar YouTube)
-- ✅ Resolución: 1080x1920 (9:16)
-- ✅ Subtítulos quemados: Sí
-- ✅ Formato: MP4 H.264/AAC
-
-## 🚨 Consideraciones Importantes
-
-1. **Primera ejecución**: La descarga del modelo Whisper puede tardar varios minutos
-2. **GPU opcional**: El sistema funciona en CPU, pero CUDA acelera significativamente
-3. **Upload automático**: Requiere autenticación previa (cookies/netrc para yt-dlp)
-4. **Contexto LLM**: Animación segmentada evita degradación en vídeos largos
+---
 
 ## 📝 Licencia
 
-Este proyecto es open source bajo licencia MIT.
+MIT License - Ver archivo LICENSE para detalles.
+
+---
 
 ## 🤝 Contribuciones
 
 Las contribuciones son bienvenidas. Por favor:
 1. Fork el repositorio
-2. Crea rama para feature (`git checkout -b feature/amazing`)
+2. Crea branch para feature (`git checkout -b feature/amazing-feature`)
 3. Commit cambios (`git commit -m 'Add amazing feature'`)
-4. Push a rama (`git push origin feature/amazing`)
+4. Push (`git push origin feature/amazing-feature`)
 5. Abre Pull Request
 
 ---
 
-**Desarrollado siguiendo las mejores prácticas de automatización de vídeo con IA.**
+## 📞 Soporte
+
+Para issues, bugs o feature requests, abrir un issue en GitHub.
+
+---
+
+**VIDEOAI** - Transforma tu contenido largo en clips virales automáticamente.

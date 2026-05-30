@@ -1,0 +1,53 @@
+# VIDEOAI - Configuración por Defecto
+# Valores base que pueden ser sobrescritos por el wizard del usuario
+
+llm:
+  mode: ""  # Se configura vía wizard: "local" o "api"
+  endpoint: ""  # URL configurada por el usuario
+  model: ""  # Modelo configurado por el usuario
+  api_key: ""  # API key (vacío para local)
+  temperature: 0.7
+  timeout: 60
+  max_retries: 2
+
+stt:
+  model_size: "base"
+  device: "auto"  # auto, cpu, cuda
+  compute_type: "default"
+
+video:
+  output_duration_min: 30
+  output_duration_max: 90
+  resolution: "1080x1920"
+  fps: 30
+  video_codec: "libx264"
+  audio_codec: "aac"
+  audio_bitrate: "192k"
+  video_bitrate: "8M"
+  audio_loudness: "-14 LUFS"
+
+animation:
+  max_segment_duration: 15  # segundos por segmento para sesión fresca
+  max_concurrent_segments: 3
+  subtitle_font: "Arial"
+  subtitle_font_size: 48
+  subtitle_color: "white"
+  subtitle_highlight_color: "yellow"
+
+paths:
+  watch_folder: "./cleaning/raw"
+  packaging: "./packaging"
+  cleaning: "./cleaning"
+  animation: "./animation"
+  output: "./output"
+  assets: "./assets"
+  logs: "./logs"
+  state: "./state"
+
+dashboard:
+  port: 5555
+  host: "0.0.0.0"
+
+youtube:
+  upload_enabled: false
+  privacy_status: "private"  # private, unlisted, public

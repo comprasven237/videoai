@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="setup-page">
+    <div class="setup-container">
+        <header class="setup-header">
+            <h1>🎬 VIDEOAI</h1>
+            <p class="subtitle">Configuración Inicial del Sistema</p>
+        </header>
+
+        <form id="setupForm" class="setup-form">
+            <!-- MODO DE IA -->
+            <section class="form-section">
+                <h2>🤖 Modo de IA</h2>
+                <div class="mode-toggle">
+                    <label class="mode-option">
+                        <input type="radio" name="llm_mode" value="local" checked>
+                        <span class="mode-card">
+                            <span class="mode-icon">🏠</span>
+                            <span class="mode-title">Local</span>
+                            <span class="mode-desc">Tengo un servidor LLM corriendo en mi máquina</span>
+                        </span>
+                    </label>
+                    <label class="mode-option">
+                        <input type="radio" name="llm_mode" value="api">
+                        <span class="mode-card">
+                            <span class="mode-icon">☁️</span>
+                            <span class="mode-title">API</span>
+                            <span class="mode-desc">Tengo una cuenta con un proveedor de IA</span>
+                        </span>
+                    </label>
+                </div>
+            </section>
+
+            <!-- CONFIGURACIÓN LOCAL -->
+            <section id="localConfig" class="config-section active">
+                <h3>⚙️ Configuración del Servidor Local</h3>
+                
+                <div class="form-group">
+                    <label for="llm_endpoint_local">URL de mi servidor LLM</label>
+                    <input 
+                        type="url" 
+                        id="llm_endpoint_local" 
+                        name="llm_endpoint"
+                        placeholder="http://localhost:1234/v1"
+                        required
+                    >
+                    <small>Ejemplo: http://localhost:1234/v1 o http://localhost:8080</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="llm_model_local">Nombre del modelo</label>
+                    <input 
+                        type="text" 
+                        id="llm_model_local" 
+                        name="llm_model"
+                        placeholder="llama-2-7b, mistral, etc."
+                        required
+                    >
+                    <small>El nombre exacto del modelo en tu servidor</small>
+                </div>
+            </section>
+
+            <!-- CONFIGURACIÓN API -->
+            <section id="apiConfig" class="config-section">
+                <h3>⚙️ Configuración de la API</h3>
+                
+                <div class="form-group">
+                    <label for="llm_endpoint_api">URL base del proveedor</label>
+                    <input 
+                        type="url" 
+                        id="llm_endpoint_api" 
+                        name="llm_endpoint"
+                        placeholder="https://api.openai.com/v1"
+                        required
+                    >
+                    <small>Ejemplo: https://api.openai.com/v1, https://api.anthropic.com, etc.</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="llm_api_key">Mi API Key</label>
+                    <input 
+                        type="password" 
+                        id="llm_api_key" 
+                        name="llm_api_key"
+                        placeholder="sk-..."
+                    >
+                    <small>Tu clave de API (se guarda de forma segura)</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="llm_model_api">Nombre del modelo</label>
+                    <input 
+                        type="text" 
+                        id="llm_model_api" 
+                        name="llm_model"
+                        placeholder="gpt-4, claude-3, etc."
+                        required
+                    >
+                    <small>El modelo que quieres usar del proveedor</small>
+                </div>
+            </section>
+
+            <!-- BOTÓN PROBAR CONEXIÓN -->
+            <div class="test-connection">
+                <button type="button" id="btnTestConnection" class="btn btn-secondary">
+                    🔌 Probar conexión
+                </button>
+                <span id="connectionStatus" class="status-indicator"></span>
+            </div>
+
+            <!-- CONFIGURACIÓN DE VÍDEO -->
+            <section class="form-section">
+                <h2>📹 Configuración de Vídeo</h2>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="output_duration_min">Duración mínima (segundos)</label>
+                        <input 
+                            type="number" 
+                            id="output_duration_min" 
+                            name="output_duration_min"
+                            value="30"
+                            min="15"
+                            max="60"
+                        >
+                    </div>
+
+                    <div class="form-group">
+                        <label for="output_duration_max">Duración máxima (segundos)</label>
+                        <input 
+                            type="number" 
+                            id="output_duration_max" 
+                            name="output_duration_max"
+                            value="90"
+                            min="30"
+                            max="180"
+                        >
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="watch_folder">Carpeta de entrada de vídeos</label>
+                    <input 
+                        type="text" 
+                        id="watch_folder" 
+                        name="watch_folder"
+                        value="./cleaning/raw"
+                        placeholder="./cleaning/raw"
+                    >
+                    <small>Los vídeos en esta carpeta se procesarán automáticamente</small>
+                </div>
+            </section>
+
+            <!-- UPLOAD YOUTUBE -->
+            <section class="form-section">
+                <h2>📤 Subida Automática</h2>
+                
+                <label class="checkbox-label">
+                    <input 
+                        type="checkbox" 
+                        id="youtube_upload_enabled" 
+                        name="youtube_upload_enabled"
+                    >
+                    <span class="checkmark"></span>
+                    Habilitar subida automática a YouTube (como borrador)
+                </label>
+            </section>
+
+            <!-- BOTONES DE ACCIÓN -->
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary btn-large">
+                    💾 Guardar y Comenzar
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <script src="/static/app.js"></script>
+    <script>
+        // Toggle entre modos Local/API
+        document.querySelectorAll('input[name="llm_mode"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+                const isLocal = radio.value === 'local';
+                document.getElementById('localConfig').classList.toggle('active', isLocal);
+                document.getElementById('apiConfig').classList.toggle('active', !isLocal);
+                
+                // Actualizar campos requeridos
+                const localInputs = document.querySelectorAll('#localConfig input');
+                const apiInputs = document.querySelectorAll('#apiConfig input');
+                
+                localInputs.forEach(input => input.required = isLocal);
+                apiInputs.forEach(input => input.required = !isLocal);
+            });
+        });
+
+        // Test de conexión
+        document.getElementById('btnTestConnection').addEventListener('click', async () => {
+            const statusEl = document.getElementById('connectionStatus');
+            statusEl.textContent = '⏳ Probando...';
+            statusEl.className = 'status-indicator testing';
+
+            try {
+                const formData = getFormData();
+                const response = await fetch('/api/test-llm', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(formData)
+                });
+
+                const result = await response.json();
+
+                if (result.ok) {
+                    statusEl.textContent = '✅ ' + result.message;
+                    statusEl.className = 'status-indicator success';
+                } else {
+                    statusEl.textContent = '❌ ' + result.message;
+                    statusEl.className = 'status-indicator error';
+                }
+            } catch (error) {
+                statusEl.textContent = '❌ Error: ' + error.message;
+                statusEl.className = 'status-indicator error';
+            }
+        });
+
+        // Obtener datos del formulario
+        function getFormData() {
+            const mode = document.querySelector('input[name="llm_mode"]:checked').value;
+            const data = {
+                llm_mode: mode,
+                stt_model_size: 'base'
+            };
+
+            if (mode === 'local') {
+                data.llm_endpoint = document.getElementById('llm_endpoint_local').value;
+                data.llm_model = document.getElementById('llm_model_local').value;
+                data.llm_api_key = '';
+            } else {
+                data.llm_endpoint = document.getElementById('llm_endpoint_api').value;
+                data.llm_model = document.getElementById('llm_model_api').value;
+                data.llm_api_key = document.getElementById('llm_api_key').value;
+            }
+
+            data.output_duration_min = document.getElementById('output_duration_min').value;
+            data.output_duration_max = document.getElementById('output_duration_max').value;
+            data.watch_folder = document.getElementById('watch_folder').value;
+            data.youtube_upload_enabled = document.getElementById('youtube_upload_enabled').checked;
+
+            return data;
+        }
+
+        // Submit del formulario
+        document.getElementById('setupForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const btn = e.target.querySelector('button[type="submit"]');
+            const originalText = btn.textContent;
+            btn.textContent = '⏳ Guardando...';
+            btn.disabled = true;
+
+            try {
+                const formData = getFormData();
+                
+                const response = await fetch('/api/setup', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(formData)
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    alert('✅ Configuración guardada exitosamente!\nRedirigiendo al Dashboard...');
+                    window.location.href = '/';
+                } else {
+                    throw new Error(result.message || 'Error al guardar');
+                }
+            } catch (error) {
+                alert('❌ Error: ' + error.message);
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
