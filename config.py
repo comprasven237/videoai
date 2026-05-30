@@ -30,6 +30,30 @@ class LLMConfig(BaseSettings):
     def requires_auth(self) -> bool:
         """Verifica si requiere autenticación"""
         return self.mode == "api" and bool(self.api_key)
+    
+    @property
+    def provider(self) -> str:
+        """Detecta el proveedor del LLM basado en el endpoint o modelo"""
+        if not self.endpoint:
+            return "unknown"
+        
+        endpoint_lower = self.endpoint.lower()
+        model_lower = self.model.lower()
+        
+        # Detectar Anthropic
+        if "anthropic.com" in endpoint_lower or model_lower.startswith("claude"):
+            return "anthropic"
+        
+        # Detectar OpenAI
+        if "openai.com" in endpoint_lower or model_lower.startswith("gpt"):
+            return "openai"
+        
+        # Detectar Google
+        if "googleapis.com" in endpoint_lower or "gemini" in model_lower:
+            return "google"
+        
+        # Asumir compatible con OpenAI (local u otros)
+        return "openai_compatible"
 
 
 class STTConfig(BaseSettings):

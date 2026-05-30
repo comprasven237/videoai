@@ -373,7 +373,7 @@ async def delete_video(filename: str):
 # ============================================================================
 
 @app.post("/api/start")
-async def start_pipeline(background_tasks: BackgroundTasks):
+async def start_pipeline(request: Request, background_tasks: BackgroundTasks):
     """Inicia el pipeline de procesamiento"""
     try:
         data = await request.json()
@@ -589,7 +589,9 @@ def initialize_file_watcher():
             
             await run_pipeline_async(orchestrator, video_path, session_id)
         
-        asyncio.create_task(start_auto())
+        # Usar run_coroutine_threadsafe para ejecutar en el event loop desde un thread
+        loop = asyncio.get_event_loop()
+        asyncio.run_coroutine_threadsafe(start_auto(), loop)
     
     file_watcher = FileWatcher()
     file_watcher.set_callback(on_video_detected)
